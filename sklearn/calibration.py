@@ -280,7 +280,7 @@ class CalibratedClassifierCV(ClassifierMixin, MetaEstimatorMixin, BaseEstimator)
         if self.estimator is None:
             # we want all classifiers that don't expose a random_state
             # to be deterministic (and we don't want to expose this one).
-            estimator = LinearSVC(random_state=0, dual="auto")
+            estimator = LinearSVC(random_state=0)
             if _routing_enabled():
                 estimator.set_fit_request(sample_weight=True)
         else:
@@ -388,9 +388,7 @@ class CalibratedClassifierCV(ClassifierMixin, MetaEstimatorMixin, BaseEstimator)
                 n_folds = self.cv.n_splits
             else:
                 n_folds = None
-            if n_folds and np.any(
-                [np.sum(y == class_) < n_folds for class_ in self.classes_]
-            ):
+            if n_folds and np.any(np.unique(y, return_counts=True)[1] < n_folds):
                 raise ValueError(
                     f"Requesting {n_folds}-fold "
                     "cross-validation but provided less than "
@@ -821,9 +819,14 @@ def _sigmoid_calibration(
     bin_loss = HalfBinomialLoss()
 
     def loss_grad(AB):
+        # .astype below is needed to ensure y_true and raw_prediction have the
+        # same dtype. With result = np.float64(0) * np.array([1, 2], dtype=np.float32)
+        # - in Numpy 2, result.dtype is float64
+        # - in Numpy<2, result.dtype is float32
+        raw_prediction = -(AB[0] * F + AB[1]).astype(dtype=predictions.dtype)
         l, g = bin_loss.loss_gradient(
             y_true=T,
-            raw_prediction=-(AB[0] * F + AB[1]),
+            raw_prediction=raw_prediction,
             sample_weight=sample_weight,
         )
         loss = l.sum()
